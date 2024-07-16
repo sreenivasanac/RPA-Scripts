@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as csv from 'csv-stringify/sync';
-import Tesseract from 'tesseract.js';
 import { log } from 'console';
+import Anthropic from '@anthropic-ai/sdk';
 
 // Instructions
 // The goal of this challenge is to create a workflow that will read every table row and download the respective invoices.
@@ -27,14 +27,6 @@ import { log } from 'console';
 //  Download sample invoice 1
 //  Download sample invoice 2
 
-interface InvoiceData {
-  ID: string;
-  'Due Date': string;
-  'Invoice Number': string;
-  'Invoice Date': string;
-  'Company Name': string;
-  'Total Due': string;
-}
 
 test('RPA Challenge 2', async ({ page }) => {
 
@@ -54,12 +46,13 @@ test('RPA Challenge 2', async ({ page }) => {
       const id = await row.$eval('td:nth-child(2)', el => el.textContent);
       const dueDate = await row.$eval('td:nth-child(3)', el => el.textContent);
       const invoiceLink = await row.$('td:nth-child(4) a');
-      console.log('Invoice link:', invoiceLink);
       if (isPastDueOrToday(dueDate) && id && dueDate && invoiceLink) {
         const invoiceUrlPath = await invoiceLink.getAttribute('href');
         const invoiceUrl = baseUrl + invoiceUrlPath;
+        console.log('Invoice link:', invoiceUrlPath);
         if (invoiceUrl) {
           const invoiceDetails = await downloadAndProcessInvoice(page, invoiceUrl, id, dueDate);
+          console.log('Invoice details:', invoiceDetails);
           invoiceData.push(invoiceDetails);
         }
       }
@@ -96,25 +89,64 @@ function isPastDueOrToday(dueDate: string | null): boolean {
   return dueDateObj <= today;
 }
 
-async function downloadAndProcessInvoice(page: any, invoiceUrl: string, id: string, dueDate: string): Promise<InvoiceData> {
-  // Download the image file
-  const imageBuffer = await page.evaluate(async (url: string) => {
-    const response = await fetch(url);
-    const arrayBuffer = await response.arrayBuffer();
-    return Array.from(new Uint8Array(arrayBuffer));
-  }, invoiceUrl);
+async function getBase64Image() {
+  try {
+    const response = await axios.get(image1_url, { responseType: 'arraybuffer' });
+    const image1_data = Buffer.from(response.data, 'binary').toString('base64');
+    return image1_data;
+  } catch (error) {
+    console.error('Error fetching image:', error);
+    throw error;
+  }
+}
 
-  // Convert the array back to a Buffer
-  const buffer = Buffer.from(imageBuffer);
+async function downloadAndProcessInvoice(page: any, invoiceUrl: string, id: string, dueDate: string): Promise<InvoiceData> {
+  
+  const api_key = "ENTER_YOUR_ANTHROPIC_SECRET_KEY";
+  
+  const anthropic = new Anthropic({ apiKey: api_key });
+
+  const image1_media_type = "image/jpeg";
+  
+  }).catch(error => {
+    console.error('Failed to get base64 image:', error);
+  });
 
   try {
+    
     // Perform OCR on the image
-    const { data: { text } } = await Tesseract.recognize(buffer);
+    const response_ai = await client.messages.create({
+      model: "claude-3-5-sonnet-20240620",
+      max_tokens: 1024,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: image1_media_type,
+                data: image1_data,
+              },
+            },
+            {
+              type: "text",
+              text: "The following image is an Invoice in Image format. Extract the Invoice Number, Invoice Date, Company Name and Total Due in Comma separated format.",
+            }
+          ],
+        }
+      ],
+    });
+  
+    console.log(response_ai);
 
-    const invoiceNumber = text.match(/Invoice Number:\s*(\S+)/)?.[1] || '';
-    const invoiceDate = text.match(/Invoice Date:\s*(\S+)/)?.[1] || '';
-    const companyName = text.match(/Bill To:\s*([^\n]+)/)?.[1]?.trim() || '';
-    const totalDue = text.match(/Total Due:\s*(\S+)/)?.[1] || '';
+    const [invoiceNumber, invoiceDate, companyName, totalDue] = (response_ai.text as string).split(",").map(item => item.trim());
+    
+    console.log('Invoice number:', invoiceNumber);
+    console.log('Invoice date:', invoiceDate);
+    console.log('Company name:', companyName);
+    console.log('Total due:', totalDue);
 
     return {
       ID: id,
@@ -124,6 +156,8 @@ async function downloadAndProcessInvoice(page: any, invoiceUrl: string, id: stri
       'Company Name': companyName,
       'Total Due': totalDue
     };
+
+    
   } catch (error) {
     console.error('Error processing image:', error);
     throw error;

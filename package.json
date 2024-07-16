@@ -12,9 +12,10 @@
     "@types/node": "^20.14.10"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.24.3",
+    "axios": "^1.7.2",
     "csv-stringify": "^6.5.0",
     "pdf-parse": "^1.1.1",
-    "tesseract.js": "^5.1.0",
     "xlsx": "^0.18.5"
   }
 }
